@@ -1,0 +1,422 @@
+<!-- stt-tts-07jul2023 > PUBLIC > index.html -->
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Whisper Speech to Text (STT) & gtts Text to Speech (TTS) PROJECT</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="
+        https://cdn.jsdelivr.net/npm/axios@1.4.0/dist/axios.min.js"></script>
+  </head>
+
+  <body>
+    <h1> 🎤 STT 🔤  |🤔|  ⌨️ TTS 🔊 </h1>
+
+    <div class="container">
+      <h2> Turn Your Voice Into Words In No Time </h2>
+      <button id="recordButton">Record</button>
+      <button id="stopButton" disabled>Stop</button>
+      <button id="replaceButton" disabled>Replace</button> 
+      <button id="transcribeButton" disabled>Transcribe</button>
+      <div id="transcription" class="transcription-container">
+      	<!-- Transcribed text for STT will appear here -->	
+      </div>
+      <p id="recordingMessage"></p>
+    </div>
+
+    <div class="container">
+      <h2> Type In the Words & Turn Them Into Spoken Audio </h2>
+      <form id="ttsForm">
+        <input type="text" id="textInput" placeholder="Enter text" />
+        <button type="submit">Submit</button>
+      </form>
+      <button id="playButton" disabled>Play</button>
+      <button id="redoButton" disabled>Redo</button>
+      <button id="importButton" disabled>Import</button>
+      <button id="downloadButton" disabled>Download</button>
+      <div id="ttsTextDisplay" class="transcription-container">
+      	<!-- Transcribed text for TTS will appear here -->
+      </div>
+    </div>
+    
+      <script>
+        const recordButton = document.getElementById("recordButton");
+      // ********************
+      // 21AUG: Updated the DOM when the RECORD button is clicked by adding a line of code to update a message element, informing the user that recording has started. Add an element in HTML & then update it in recordButton.addEventListener.
+      const recordingMessage = document.getElementById("recordingMessage");
+      const stopButton = document.getElementById("stopButton");
+      const replaceButton = document.getElementById("replaceButton");
+      const transcribeButton = document.getElementById("transcribeButton");
+      const transcriptionDiv = document.getElementById("transcription");
+      // =======================
+
+      let isRecording = false; // for STT
+
+      let hasReplacement = false; // for STT: Flag to track if a replacement recording has been made
+
+
+      let recordFirstFile = true; // for STT: Define it as a global variable, assuming you want to record the first file by default
+
+      let audioFilename = ""; // for STT | TTS: Initialize audioFilename as an empty string
+      // ************************
+      let transcription = ""; // for TTS
+      let audioBlob; // for TTS
+
+      let audioPlaying = false; // for TTS: Flag to prevent multiple playbacks (for playTTS() function)
+      // ************************
+      const ttsForm = document.getElementById("ttsForm");
+      const textInput = document.getElementById("textInput");
+      const playButton = document.getElementById("playButton");
+      const redoButton = document.getElementById("redoButton");
+      const importButton = document.getElementById("importButton");
+      const downloadButton = document.getElementById('downloadButton')
+      const ttsTextDisplay = document.getElementById("ttsTextDisplay");
+
+      // ===============
+
+      // ++++++++++++++++++++++++++++++++++++++++++++++++++
+      // +++++++++++++++   FUNCTIONS   ++++++++++++++++++++
+      // ++++++++++++++++++++++++++++++++++++++++++++++++++
+
+      // *** HELPER FUNCTION TO CONVERT TEXT TO SPEECH ***
+      async function convertTextToSpeech(text) {
+        try {
+          const response = await fetch("/tts", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ text }),
+          });
+
+          if (!response.ok) {
+            throw new Error("TTS request failed");
+          }
+
+          const audioBlob = await response.blob();
+
+          if (audioBlob) {
+            const ttsText = `<p>${text
+              .split(" ")
+              .map((word, index) => `<span id="word-${index}">${word}</span>`)
+              .join(" ")}</p>`;
+            return { ttsText, audioBlob };
+          } else {
+            throw new Error("TTS audio not received");
+          }
+        } catch (error) {
+          console.error("TTS request failed:", error);
+          return null;
+        }
+      }
+
+      // ===============================
+      // *** HELPER FUNCTION TO PLAY THE TTS AUDIO W/ WORD HIGHLIGHTING ***
+      function playTTS() {
+        if (audioBlob && !audioPlaying) {
+          audioPlaying = true; // Set flag to indicate audio is playing
+
+          const text = ttsTextDisplay.textContent;
+          const words = text.split(" ");
+          const utterance = new SpeechSynthesisUtterance();
+          utterance.lang = "en";
+          let currentWordIndex = 0;
+
+          ttsTextDisplay.innerHTML = words
+            .map((word, index) => `<span id="word-${index}">${word}</span>`)
+            .join(" ");
+
+          const wordElements = document.querySelectorAll("[id^='word-']");
+
+          function playNextWord() {
+            if (currentWordIndex < words.length) {
+              const currentWordElement = wordElements[currentWordIndex];
+              const currentWord = words[currentWordIndex];
+
+              currentWordElement.classList.add("highlight");
+              utterance.text = currentWord;
+              speechSynthesis.speak(utterance);
+
+              utterance.onend = () => {
+                currentWordElement.classList.remove("highlight");
+                currentWordIndex++;
+                playNextWord();
+              };
+            } else {
+              audioPlaying = false; // Reset flag when audio playback is complete
+            }
+          }
+
+          playNextWord();
+        }
+      }
+
+      // ++++++++++++++++++++++++++++++++++++++++++++++++++
+      // +++++++++++++++++   LISTENERS   ++++++++++++++++++
+      // ++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    // ******* LISTENER FOR RECORD BUTTON *******
+    recordButton.addEventListener('click', async() => {
+      const selectedAudioFilename = recordFirstFile ? "recorded_audio1.wav" : "recorded_audio2.wav";
+      console.log(`Recording started for: ${selectedAudioFilename}`);
+      recordingMessage.textContent = 'Recording in progress...';
+
+      try {
+        const response = await fetch('/record/start', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ audioFilename: selectedAudioFilename })
+        })
+
+        if (response.ok) {
+          recordButton.disabled = true;
+          stopButton.disabled = false;
+          transcribeButton.disabled = true;
+          replaceButton.disabled = true;
+          transcriptionDiv.innerHTML = ''; // clear previous transcriptions
+        } else {
+          console.error(`Start recording error for ${selectedAudioFilename}:`, response.statusText);
+        }
+      } catch (error) {
+        console.error(`Start recording error for ${selectedAudioFilename}:`, error);
+      }
+    })
+    // =====================================================
+
+    // ******* LISTENER FOR STOP BUTTON *******
+      stopButton.addEventListener("click", async () => {
+        console.log("Recording stopped");
+        
+        try {
+
+          let audioFilename;
+
+          if (recordFirstFile) {
+            audioFilename = 'recorded_audio1.wav'; // Use "recorded_audio1.wav" for the 1st recording
+          } else {
+            audioFilename = 'recorded_audio2.wav'; // use "recorded_audio2.wav" for the 2nd recording
+          }
+
+          const response = await fetch("/record/stop", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ audioFilename }) 
+          });
+
+          if (response.ok) {
+            stopButton.disabled = true;
+            transcribeButton.disabled = false;
+            replaceButton.disabled = false; // enable the REPLACE button here
+           
+            // Clear the recording message when the recording stops
+            recordingMessage.textContent = ''; // Set to an empty string
+
+          } else {
+            console.error("Stop recording error:", response.statusText);
+          }
+        } catch (error) {
+          console.error("Stop recording error:", error);
+        }
+      });
+      // ********************************************
+
+
+      // ******* LISTENER FOR REPLACE BUTTON *******
+      replaceButton.addEventListener('click', async () => {
+        if (!isRecording) {
+          // Check if there's no active recording, meaning it's safe to replace
+          console.log('Starting replacement recording...');
+
+          try {
+            // Make a request to the server to start recording
+            const response = await fetch('/record/replace', {
+              method: 'POST'
+            })
+
+            if (response.ok) {
+              replaceButton.disabled = true; // disable REPLACE button during replacement
+              transcribeButton.disabled = true; // disable TRANSCRIBE btn during replacement
+              recordButton.disabled = false; // enable the RECORD button for a new recording
+
+              hasReplacement = true; // set the replacement flag to true
+
+            } else {
+              console.error('Replace recording error:', response.statusText);
+              replaceButton.disabled = false; // enable REPLACE button if an error occurs
+              transcribeButton.disabled = false; // enable TRANSCRIBE button if an error occurs
+            }
+          } catch (error) {
+            console.error('Replace recording error:', error);
+            replaceButton.disabled = false; // Enable REPLACE button if an error occurs
+            transcribeButton.disabled = false; // Enable TRANSCRIBE button if an error occurs
+          }
+        } else {
+          console.log('Stop the current recording before replacing');
+        }
+      }) 
+    // *********************************************************
+
+      // **** TRANSCRIBEBUTTON EVENT LISTENER *****
+      transcribeButton.addEventListener('click', async () => {
+      // Check if there's an active recording, and stop it before transcription
+      if (isRecording) {
+        console.log('Stop the current recording before transcription');
+        return;
+      }
+
+      // Check if a replacement has been made or if there's no replacement required
+      if (hasReplacement || !isRecording) {
+        try {
+
+          const selectedAudioFilename = hasReplacement ? 'recorded_audio2.wav' : 'recorded_audio1.wav';
+
+          // Make a request to the server for transcription
+          const response = await fetch('/transcribe', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              //
+            },
+            body: JSON.stringify({ audioFilename: selectedAudioFilename }) 
+
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            const transcriptionText = data.transcription;
+
+            // Display the transcription on the webpage
+            transcriptionDiv.innerHTML = `<p>${transcriptionText}</p>`;
+            transcribeButton.disabled = true; // Disable TRANSCRIBE after successful transcription
+            replaceButton.disabled = true; // Disable the REPLACE button after transcription
+          } else {
+            console.error('Transcription error:', response.statusText);
+          }
+        } catch (error) {
+          console.error('Transcription error:', error);
+        }
+      }
+    });
+      // *********************************************************
+
+      // (04OCT23) The 'ttsForm.addEventListener' orchestrates the process of converting user-entered text to TTS audio. It ensures proper handling of the form submission, triggers the TTS conversion, updates the display, and enables relevant buttons for the user to interact with the generated TTS audio. The structure aims for a seamless user experience by providing immediate feedback and enabling further actions upon successful TTS conversion.
+      // =========================================================
+      
+      // ****** TTSFORM EVENT LISTENER *****
+      ttsForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const text = textInput.value.trim();
+        if (text) {
+          audioBlob = await convertTextToSpeech(text);
+          if (audioBlob) {
+            ttsTextDisplay.textContent = text; // Update the display with the entered text
+            playButton.disabled = false; // Enable the play button after audio is received
+            redoButton.disabled = false; // enable the redo button after audio is received
+            importButton.disabled = false; // enable the import button after audio is received
+            //
+            downloadButton.disabled = false; // enable the download btn after audio is received 
+          }
+        }
+      });
+
+      // ===================================
+      // ****** LISTENER FOR PLAY BUTTON *****
+      playButton.addEventListener("click", () => {
+        playTTS();
+        // 
+        downloadButton.disabled = false // enable ......
+      });
+      // *******************
+
+      // 05OCT: Modified the redoButton.addEventListener() to allow users to edit the previous entry in the ‘input box’. Added textInput.disabled = false; to enable the TTS input field, and textInput.focus(); sets the focus back to the input field. This way, users can edit the existing text instead of starting from scratch.
+      // ******** LISTENER FOR REDOBUTTON ********
+      redoButton.addEventListener("click", () => {
+        textInput.disabled = false; // enable the TTS input field
+        textInput.focus(); // set focus back to the input field
+        redoButton.disabled = true; // disable the "Redo" button
+        importButton.disabled = true; // disable the "Import" button
+        downloadButton.disabled = false // enable ......
+        ttsTextDisplay.innerHTML = ""; // Clear the displayed text
+
+        audioBlob = null; // Reset the audioBlob to null since we are clearing the TTS text; this indicates as well that there is no TTS audio available after clearing the text
+      });
+      // ************************
+      // The 'DOWNLOAD' btn is responsible for downloading the TTS audio file
+      // ********* LISTENER FOR downloadButton *********
+      downloadButton.addEventListener("click", async () => {
+        try {
+          const response = await fetch(
+            `/download?audioFilename=${encodeURIComponent(audioFilename)}`
+          );
+          if (!response.ok) {
+            throw new Error("Download request failed");
+          }
+
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.style.display = "none";
+          a.href = url;
+          a.download = "tts_audio.wav";
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          // 
+          textInput.value = ""; // reset the TTS input field
+        } catch (error) {
+          console.error("Download error:", error);
+        }
+      });
+      
+      // *********************************************
+      // Added listener for importButton; the 'IMPORT' button allows users to select an external text file, & its contents is then used as input for the TTS process.
+      // ********* LISTENER FOR importButton *********
+      importButton.addEventListener("click", async () => {
+      // Add code for importing an external text file...
+      // For example, you might use the HTML file input element:
+      const fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.accept = ".txt";
+      fileInput.addEventListener("change", async (event) => {
+        const file = event.target.files[0];
+        if (file) {
+          // Read the content of the text file and use it for TTS...
+          const text = await file.text();
+          // Perform TTS with the imported text...
+          const audioBlob = await convertTextToSpeech(text);
+          if (audioBlob) {
+            // Display the text and enable the necessary buttons...
+            ttsTextDisplay.textContent = text;
+            playButton.disabled = false;
+            redoButton.disabled = false;
+            downloadButton.disabled = false;
+            //
+            textInput.value = ""; // reset the TTS input field
+          }
+        }
+      });
+      fileInput.click();
+    });  
+
+    </script>
+  </body>
+</html>
+
+
